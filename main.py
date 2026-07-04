@@ -37,8 +37,6 @@ def modo_interactivo():
 
         tokens, errores = motor_lexer(entrada)
         _mostrar_resultado(tokens, errores)
-        if not errores:
-            parsear(tokens)
 
         continuar = input("Para continuar presione enter, para salir presione 0: ")
         if continuar == "0":
