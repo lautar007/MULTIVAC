@@ -5,7 +5,7 @@
 #   - Comentarios // línea
 #   - Textos entre comillas dobles "texto"
 #   - Porcentajes 0%..100%
-#   - Temperaturas -30°c..50°c
+#   - Temperaturas -10°c..50°c
 #   - Tiempo 10h, 5m, 120s
 #   - Luz 100l, 250lu, 500lux
 #   - Fechas DD/MM/AAAA (validación día/mes)
@@ -31,12 +31,31 @@ BOOLEANOS_SENSOR = ["true", "false"]
 OPERADORES_BASICOS   = ["+", "-", "*", "/", "=", "<", ">", "!"]
 OPERADORES_VALIDOS   = ["+", "-", "*", "/", "=", "<", ">", "!", "==", "!=", "<=", ">="]
 
-ATRIBUTOS_VALIDOS = [
-    "estado", "brillo", "color", "color_val", "porcentaje_val", "modo",
-    "temp_obj", "temp_objetivo", "temp_act", "discreto_val", "posicion",
-    "hora", "hora_val", "fecha", "volumen", "mute", "mensaje",
-    "email", "email_notif", "activada"
-]
+# Atributos válidos por dispositivo (según PDF, secciones 6-7: ATRIB_FOCO,
+# ATRIB_AIRE, ATRIB_PERSIANA, ATRIB_CERRADURA, ATRIB_ALTAVOZ, ATRIB_ALARMA).
+# Se reemplaza la vieja lista plana ATRIBUTOS_VALIDOS (que no distinguía de
+# qué dispositivo venía el atributo) por este mapeo dispositivo -> atributos.
+#
+# "reloj" no tiene ASIGNACION_RELOJ/ATRIB_RELOJ en la gramática: solo aparece
+# en EXPRESION (reloj_id.hora, reloj_id.fecha), es decir, es de solo lectura
+# para comparaciones. Se lo incluye acá únicamente para que el lexer permita
+# "reloj.hora" / "reloj.fecha" como referencia; la distinción entre
+# "comparación" (válida) y "asignación" (inválida) es responsabilidad del
+# parser, ya que el lexer no tiene contexto sintáctico para saberlo.
+ATRIBUTOS_POR_DISPOSITIVO = {
+    "foco":      ["estado", "brillo", "color"],
+    "aire":      ["estado", "modo", "temp_obj", "temp_act"],
+    "persiana":  ["posicion"],
+    "cerradura": ["estado"],
+    "altavoz":   ["volumen", "mute", "mensaje", "email_notif"],
+    "alarma":    ["estado", "activada"],
+    "reloj":     ["hora", "fecha"],
+}
+
+# Se mantiene por compatibilidad (por ejemplo, para chequeos genéricos), pero
+# ya no se usa para validar la combinación dispositivo.atributo.
+ATRIBUTOS_VALIDOS = sorted({a for lista in ATRIBUTOS_POR_DISPOSITIVO.values() for a in lista})
+
 DISPOSITIVOS_VALIDOS = [
     "foco", "aire", "persiana", "cerradura", "reloj", "altavoz", "alarma"
 ]
@@ -444,10 +463,10 @@ def motor_lexer(string):
                 num_part = valor_lower.replace('°', '').replace('c', '')
                 if es_solo_digitos(num_part) or (num_part.startswith('-') and es_solo_digitos(num_part[1:])):
                     num = int(num_part)
-                    if -30 <= num <= 50:
+                    if -10 <= num <= 50:
                         tokens.append(Token("TEMPERATURA", valor, linea_token, columna_token))
                     else:
-                        agregar_error(f"Temperatura fuera de rango (-30 a 50): {num}", linea_token, columna_token)
+                        agregar_error(f"Temperatura fuera de rango (-10 a 50): {num}", linea_token, columna_token)
                 else:
                     agregar_error(f"Número inválido en temperatura: {valor}", linea_token, columna_token)
             else:
@@ -554,11 +573,15 @@ def motor_lexer(string):
         elif estado_origen == "ATRIBUTO":
             if '.' in valor:
                 dispositivo_parte, atributo_parte = valor.rsplit('.', 1)
-                base = dispositivo_parte.split('_')[0]
-                if base.strip() not in DISPOSITIVOS_VALIDOS:
+                base = dispositivo_parte.split('_')[0].strip()
+                if base not in DISPOSITIVOS_VALIDOS:
                     agregar_error(f"Dispositivo inválido en '{valor}'", linea_token, columna_token)
-                elif atributo_parte not in ATRIBUTOS_VALIDOS:
-                    agregar_error(f"Atributo inválido '{atributo_parte}'", linea_token, columna_token)
+                elif atributo_parte not in ATRIBUTOS_POR_DISPOSITIVO.get(base, []):
+                    agregar_error(
+                        f"Atributo '{atributo_parte}' no válido para el dispositivo '{base}'. "
+                        f"Atributos válidos: {ATRIBUTOS_POR_DISPOSITIVO.get(base, [])}",
+                        linea_token, columna_token
+                    )
                 else:
                     # Se emiten 3 tokens en vez de uno compuesto, para que el
                     # parser pueda distinguir el "Sujeto" (dispositivo) de su
